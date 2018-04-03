@@ -35,7 +35,7 @@ class Message:
     def __init__(self, bot, msgDict):        
         self.bot = bot
         self.original = msgDict
-        self.from_id = msgDict['from']['id']
+        self.from_username = msgDict['from']['username']
         self.date = msgDict['date']
         self.chat_id = msgDict['chat']['id']
         self.text = msgDict.get('text')            
@@ -62,12 +62,11 @@ class TelegramBot:
     # }}
     # ]}
     def getUpdates(self, offset, timeout=90):
-        conn = http.client.HTTPSConnection("api.telegram.org", 443)
+        conn = http.client.HTTPSConnection("api.telegram.org", 443, timeout=timeout+10)
         conn.request(
             "GET", "/bot{0}/getUpdates?offset={1}&timeout={2}".format(self.token, offset, timeout))
         rq = conn.getresponse()
         response = rq.read().decode('utf-8')
-        
         conn.close()
         data = json.loads(response)
         if not data['ok']:
@@ -77,7 +76,7 @@ class TelegramBot:
 
     # https://core.telegram.org/bots/api#available-methods
     def sendMessage(self, chat_id, text, reply_to=None, mode="Markdown"):
-        conn = http.client.HTTPSConnection("api.telegram.org", 443)
+        conn = http.client.HTTPSConnection("api.telegram.org", 443, timeout=30)
         headers = { "Content-type": "application/json" }
         data = {
             'chat_id': chat_id,
@@ -103,7 +102,7 @@ class TelegramBot:
         return data
 
     def getFile(self, file_id):
-        conn = http.client.HTTPSConnection("api.telegram.org", 443)
+        conn = http.client.HTTPSConnection("api.telegram.org", 443, timeout=30)
         conn.request("GET", "/bot{0}/getFile?file_id={1}".format(self.token, file_id))
         rq = conn.getresponse()
         return json.loads(rq.read())
@@ -128,29 +127,30 @@ class TelegramBot:
 
         return False
 
-    def poll(self, offset=0, sleepTime=5, timeout=120, allowed_users=[]):
+    def poll(self, offset=0, sleepTime=5, timeout=680, allowed_users=[]):
         while True:
-            self.log.debug("Polling...")
             try:
-                updates = self.getUpdates(offset, timeout)
+                updates = self.getUpdates(offset, timeout)            
 
                 for update in updates['result']:
                     offset = update['update_id'] + 1
+                    
+                    self.log.debug("Update: {}".format(update))
 
                     message = Message(self, update['message'])
                     
-                    if message.from_id in allowed_users:
+                    if message.from_username in allowed_users:
                         if self.recentDate(message.date):
                             self.processMessage(message)
                         else:
                             self.log.debug("Old message: {}".format((time.time() - message.date)))
                     else:
-                        self.log.debug("Not allowed here, with message: {}".format(message.text))
-                        self.sendMessage(self.token, message.chat_id, "Who are you?")
-                sleep(sleepTime)                
+                        self.log.debug("User: {} is not allowed, with message: {}".format(message.from_username, message.text))
+                        self.sendMessage(self.token, message.chat_id, "Who are you?")        
+                sleep(sleepTime)
             except:
                 self.log.warn("Error: {}".format(sys.exc_info()[0]))
-                raise
+                pass
 
 def exec(cmd):
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
@@ -214,6 +214,11 @@ def handleUpload(msg):
 if __name__ == "__main__":
     log = logging.getLogger(__name__)
     log.setLevel(logging.DEBUG)
+    fh = logging.FileHandler('/root/bot.log')
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    log.addHandler(fh)
+    
     #handler = logging.handlers.SysLogHandler(address = '/dev/log')
     #handler.setFormatter(logging.Formatter('%(module)s.%(funcName)s: %(message)s'))
     #log.addHandler(handler)
