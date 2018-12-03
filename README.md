@@ -16,7 +16,7 @@ Small and simple Telegram Bot for Omega2 written in Python 3.
 1. Register a bot using [@BotFather](http://t.me/botfather).
 2. Install Python3 and necessary modules:
 ```bash
-# opkg -i python3 python3-base python3-codecs python3-logging python3-openssl
+# opkg install python3 python3-base python3-codecs python3-logging python3-openssl
 ```
 3. Copy [bot.py](https://raw.githubusercontent.com/sergkh/omega-telegram-bot/master/bot.py) into Omega's root folder: 
 
