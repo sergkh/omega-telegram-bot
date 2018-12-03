@@ -38,6 +38,7 @@ Small and simple Telegram Bot for Omega2 written in Python 3.
 6. Enable a service autostart and run it:
 
 ```bash
+# chmod +x /etc/init.d/bot
 # /etc/init.d/bot enable 
 # /etc/init.d/bot start
 ```
