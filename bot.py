@@ -38,11 +38,15 @@ class Message:
         self.from_username = msgDict['from']['username']
         self.date = msgDict['date']
         self.chat_id = msgDict['chat']['id']
-        self.text = msgDict.get('text')            
+        self.text = msgDict.get('text')
+        self.sticker = msgDict.get('sticker')
         self.document = Document(bot, msgDict.get('caption'), msgDict.get('document')) if msgDict.get('document') else None
 
     def respond(self, response, mode="Markdown"):
         self.bot.sendMessage(self.chat_id, response, None, mode)
+
+    def respondSticker(self, sticker_id):
+        self.bot.sendSticker(self.chat_id, sticker_id, None)
 
 class TelegramBot:
 
@@ -88,6 +92,33 @@ class TelegramBot:
             data['reply_to_message_id'] = reply_to
 
         conn.request("POST", "/bot{0}/sendMessage".format(self.token), json.dumps(data), headers)
+
+        rq = conn.getresponse()
+
+        response = rq.read()
+        conn.close()
+
+        data = json.loads(response)
+
+        if not data['ok']:
+          self.log.warn("Send message data is not OK: {}".format(data))
+
+        return data
+
+    # Pass a file_id as String to send a file that exists on the Telegram servers (recommended), 
+    # pass an HTTP URL as a String for Telegram to get a .webp file from the Internet.
+    def sendSticker(self, chat_id, sticker_id, reply_to=None):
+        conn = http.client.HTTPSConnection("api.telegram.org", 443, timeout=30)
+        headers = { "Content-type": "application/json" }
+        data = {
+            'chat_id': chat_id,
+            'sticker': sticker_id         
+        }
+
+        if reply_to:
+            data['reply_to_message_id'] = reply_to
+
+        conn.request("POST", "/bot{0}/sendSticker".format(self.token), json.dumps(data), headers)
 
         rq = conn.getresponse()
 
