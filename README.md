@@ -11,7 +11,15 @@ Small and simple Telegram Bot for Omega2 written in Python 3.
 * Torrents management (using transmission client)
 * Easy to add user commands
 
-## Installation
+## Installation on Raspberry Pi
+1. Register a bot using [@BotFather](http://t.me/botfather).
+2. Run a script
+
+```bash
+curl -o- -L https://raw.githubusercontent.com/sergkh/omega-telegram-bot/master/raspberry-install.py | sudo bash
+```
+
+## Installation on Omega2
 
 1. Register a bot using [@BotFather](http://t.me/botfather).
 2. Install Python3 and necessary modules:

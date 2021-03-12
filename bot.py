@@ -8,6 +8,8 @@ import time
 import sys
 import logging
 import logging.handlers
+import random
+import os
 from time import sleep
 
 class Handler:
@@ -44,6 +46,9 @@ class Message:
 
     def respond(self, response, mode="Markdown"):
         self.bot.sendMessage(self.chat_id, response, None, mode)
+    
+    def respondSticker(self, sticker_id):
+        self.bot.sendSticker(self.chat_id, sticker_id, None)
 
     def respondSticker(self, sticker_id):
         self.bot.sendSticker(self.chat_id, sticker_id, None)
@@ -74,7 +79,7 @@ class TelegramBot:
         conn.close()
         data = json.loads(response)
         if not data['ok']:
-            self.log.warn("Send message data is not OK: {}, {}".format(data, rq.status))
+            self.log.warning("Send message data is not OK: {}, {}".format(data, rq.status))
 
         return data
 
@@ -170,7 +175,7 @@ class TelegramBot:
 
                     message = Message(self, update['message'])
                     
-                    if message.from_username in allowed_users:
+                    if allowed_users == None or message.from_username in allowed_users:
                         if self.recentDate(message.date):
                             self.processMessage(message)
                         else:
@@ -183,19 +188,43 @@ class TelegramBot:
                 self.log.warn("Error: {}".format(sys.exc_info()[0]))
                 pass
 
+def addQuestion(chats, m):
+    chats[m.chat_id] = m.text[4:].strip()
+    print("Adding '{0}'".format(chats[m.chat_id]))
+    m.respond("Answer is:")
+
+def addAnswer(log, answers, chat_file, chats, m):
+    question = chats[m.chat_id]
+    
+    if m.text != None:
+        log.info("Adding text {0}".format(m.text))
+        answers.append({ "q" : question, "txt" : m.text })
+    else:
+        log.info("Adding sticker {0}".format(m.sticker['file_id']))
+        answers.append({ "q" : question, "sk" : m.sticker['file_id'] })        
+
+    del chats[m.chat_id]
+
+    m.respond("Noted")
+
+    with open('chat', 'w') as f: # /root/.config/chat
+        json.dump(answers, f)
+
+def findAnswer(answers, msg):
+    matches = [a for a in answers if a['q'] in msg.text]
+    if matches:
+        resp = random.choice(matches)
+        if 'txt' in resp:
+            msg.respond(resp['txt'])
+        else:
+            msg.respondSticker(resp['sk'])
+    else:
+        msg.respond("What?")
+
 def exec(cmd):
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
     output = "{}".format(proc.stdout.read())[:-1]
     return "```bash\n{}\n```".format(output).replace("\\n", "\n")
-
-def display(msg):
-    text = msg.text[len("/display "):]
-    exec("oled-exp -i write \"{}\"".format(text))
-    msg.respond("Message written!")
-
-def clearDisplay(msg):
-    exec("oled-exp power off")
-    msg.respond("Display turned off!")
 
 def transmissionHandler(dir):
     handlers = []
@@ -203,24 +232,15 @@ def transmissionHandler(dir):
     def handleTorrentFile(m):
         torrent = "{}/{}".format(dir, m.document.file_name)
         m.document.download(torrent) # store file
-        exec("/etc/init.d/transmission start")
-        m.respond(exec("transmission-remote -n 'transmission:transmission' -a '{}'".format(torrent)))
+        result = exec("transmission-remote -n 'transmission:transmission' -a '{}'".format(torrent))
+        success = result.find("success") != -1
+        m.respond("Added" if success else result)
         
     handlers.append(Handler(
         lambda m: m.document != None and m.document.file_name.endswith(".torrent"),
         lambda m: handleTorrentFile(m)
     ))
     
-    handlers.append(Handler(
-        lambda m: m.text == "/torrent stop", 
-        lambda m: m.respond(exec("transmission-remote -n 'transmission:transmission' -S && /etc/init.d/transmission stop"))
-    ))
-
-    handlers.append(Handler(
-        lambda m: m.text == "/torrent start", 
-        lambda m: m.respond(exec("/etc/init.d/transmission start && transmission-remote -n 'transmission:transmission' -s"))
-    ))
-
     handlers.append(Handler(
         lambda m: m.text == "/torrent list", 
         lambda m: m.respond(exec("transmission-remote -n 'transmission:transmission' -l"))
@@ -249,12 +269,18 @@ if __name__ == "__main__":
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     log.addHandler(fh)
-    
-    #handler = logging.handlers.SysLogHandler(address = '/dev/log')
-    #handler.setFormatter(logging.Formatter('%(module)s.%(funcName)s: %(message)s'))
-    #log.addHandler(handler)
+        
+    answers = []
+    adding_words_chats = {}
+
+    chat_file = 'chat' # /root/.config/chat
+
+    if os.path.isfile(chat_file):
+        with open(chat_file, 'r') as f: 
+            answers = json.load(f)
 
     log.info('Starting Telegram Bot')
+    
     # File format: { "token": "bot:token", "allowed_users": [123] }
     with open('/root/.config/telegram_bot', 'r') as f:
         config = json.load(f)
@@ -262,29 +288,24 @@ if __name__ == "__main__":
     token = config['token']
     users = config['allowed_users']
     
-    bot = TelegramBot(token, log)    
+    bot = TelegramBot(token, log)
     
-    bot.addHandler(lambda m: m.text == "/help",
-                   lambda m: m.respond("Supported commands: help, display, torrent"))
+    bot.addHandler(lambda m: m.text != None and m.text.startswith("/add"), lambda m: addQuestion(adding_words_chats, m))
 
     bot.addHandler(lambda m: m.text == "/ping",
                    lambda m: m.respond("pong"))
 
-    # Turn display off
-    bot.addHandler(lambda m: m.text == "/display off",
-                   lambda m: clearDisplay(m))
-
-    # Display text 
-    bot.addHandler(lambda m: m.text and m.text.startswith("/display"),
-                   lambda m: display(m))
-
     bot.addHandlers(transmissionHandler("/root/Downloads/torrents"))
 
-    # Call exec on any other text command
-    bot.addHandler(lambda m: m.document != None, 
-                   lambda m: handleUpload(m))
+    bot.addHandler(lambda m: m.chat_id in adding_words_chats, lambda m: addAnswer(log, answers, chat_file, adding_words_chats, m))
+
+    bot.addHandler(lambda m: m.text != None, lambda m: findAnswer(answers, m))
 
     # Call exec on any other text command
-    bot.addHandler(lambda m: m.text != None, lambda m: m.respond(exec(m.text)))
+    # bot.addHandler(lambda m: m.document != None,
+    #               lambda m: handleUpload(m))
+
+    # Call exec on any other text command
+    # bot.addHandler(lambda m: m.text != None, lambda m: m.respond(exec(m.text)))
 
     bot.poll(allowed_users = users)
